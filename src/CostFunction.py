@@ -22,6 +22,7 @@
          our Cost Function.
 """
 
+import csv
 import time
 from tqdm import tqdm
 
@@ -30,7 +31,7 @@ from collections import defaultdict
 
 from SPLindex.utils import *
 from SPLindex.ZAdress import MortonCode
-from SPLindex.treeModel import TreeBuilder
+from SPLindex.treemodel2 import TreeBuilder
 from SPLindex.ConfigParam import Config
 
 
@@ -82,9 +83,10 @@ class OptimalHyperparameters:
         end = time.time()
         QueryTime = end - start
         ############## Get a constant refinement time for accelerating process ##############
-        # 200 microseconds
-        constant_refinement_time = 0.0002  # seconds
-        ExeQueryTime = QueryTime + constant_refinement_time
+        # Each object approximately takes "3.15 microseconds" for refinement time
+        constant_refinement_time_per_object = 0.0000031  # seconds
+        refinement_time = len(query_results) * constant_refinement_time_per_object
+        ExeQueryTime = QueryTime + refinement_time
         return ExeQueryTime
 
 
@@ -92,12 +94,15 @@ class OptimalHyperparameters:
         ################### Clustering ####################
         z_ranges_sorted, sorted_clusters_IDs, sorted_clusters = self.sort_clusters_Zaddress(data, bf, T)
         ################# Index Building ##################
-        tree = TreeBuilder(global_percentage=0.05)  # Assuming a 5% error bound for illustration
-        model = tree.buildTreeModel(z_ranges_sorted, sorted_clusters_IDs)
+        tree = TreeBuilder()
+        model = tree.build_tree(z_ranges_sorted, sorted_clusters_IDs, Config().max_depth)
+
         hash_tables_generator = spli.get_disk_pages(sorted_clusters)
         hash_tables = defaultdict(dict)
         for new_hash_tables in hash_tables_generator:
             hash_tables.update(new_hash_tables)
+        #tree = TreeBuilder(global_percentage=0.05)  # Assuming a 5% error bound for illustration
+        #model = tree.buildTreeModel(z_ranges_sorted, sorted_clusters_IDs)
         ################# Execute Query ###################
         total_exe_query_time = 0
         for query_rect in range_queries:
@@ -121,7 +126,6 @@ class OptimalHyperparameters:
         print(f"Original Time: {original_time}, Increased Time: {increased_time}, Gradient T: {gradient_T}")
         return gradient_T
 
-
     def approximate_gradient_bf(self, data, bf, T, spli, range_queries, delta_bf):
         """ Since the cost function (query execution time) is not analytically differentiable
             with respect to the clustering hyperparameter (e.g., threshold in BIRCH clustering),
@@ -136,22 +140,37 @@ class OptimalHyperparameters:
         return gradient_bf
 
 
-    def gradient_descent(self, data, initial_bf, initial_T, spli, range_queries, initial_learning_rate_T=5.5,
-                         delta_T=20.10, delta_bf=5, iterations=5, tolerance=1e-6):
-        """ This function takes in the values of the set,  as well the intial theta values(coefficients),
-            the learning rate, and the number of iterations. The output will be a new set of coefficeients(T),
-            optimized for making predictions, as well as the array of the cost as it depreciates on each iteration.
+    def gradient_descent(self, data, initial_bf, initial_T, spli, range_queries, initial_learning_rate_T=25.0,
+                         delta_T=0.01, delta_bf=1, iterations=100, tolerance=1e-4, output_csv="results.csv"):
+        """ This function performs gradient descent to find optimal values for T and bf to minimize cost.
+            Stops iterating when the improvement in cost is smaller than the given tolerance.
+
+            Parameters:
+            - data: The dataset to work with.
+            - initial_bf: Initial branching factor.
+            - initial_T: Initial value of T (threshold).
+            - spli: SPLindex object.
+            - range_queries: Range queries to evaluate the cost.
+            - initial_learning_rate_T: Initial learning rate for T.
+            - delta_T: Perturbation for approximating gradient with respect to T.
+            - delta_bf: Perturbation for approximating gradient with respect to bf.
+            - max_iterations: Maximum number of iterations to run gradient descent.
+            - tolerance: Tolerance for stopping criterion (minimum acceptable improvement in cost).
         """
 
         T = initial_T
         bf = initial_bf
         learning_rate_T = initial_learning_rate_T
+        learning_rate_bf = 1
         cost_history = []
+
+        # Create a list to store iteration data
+        iteration_data = []
 
         for i in tqdm(range(iterations)):
             grad_T = self.approximate_gradient_T(data, bf, T, spli, range_queries, delta_T)
             T -= learning_rate_T * grad_T  # Update rule for T
-            T = max(1e-5, T)  # To make sure T remains within the valid range
+            T = max(1.0, T)  # To make sure T remains within the valid range
 
             grad_bf = self.approximate_gradient_bf(data, bf, T, spli, range_queries, delta_bf)
             # Update rule for bf to manage discrete parameters like bf in situations where traditional gradient descent is less
@@ -166,17 +185,34 @@ class OptimalHyperparameters:
 
             cost = self.cost_function(data, bf, T, spli, range_queries)
             cost_history.append(cost)
+            # Save the iteration data
+            iteration_data.append([i + 1, T, bf, cost])
+
             print(f"Iteration {i + 1}: T={T}, Bf={bf}, Cost={cost}")
 
-            if i > 5 and abs(cost_history[-1] - cost_history[-2]) < tolerance:
+            # Stop when the improvement is smaller than the tolerance (check after 10 iterations)
+            if i > 10 and abs(cost_history[-1] - cost_history[-2]) < tolerance:
                 print(f"Convergence reached based on cost change at iteration {i + 1}.")
                 break
 
-        return T, bf, cost_history
+            # Adaptive Learning Rate: reduce learning rate if no significant improvement in cost
+            if i > 0 and abs(cost_history[-1] - cost_history[-2]) < tolerance * 10:
+                learning_rate_T *= 0.98
 
+        min_cost_value = min(cost_history)
+        optimal_index = cost_history.index(min_cost_value)
+        optimal_T = iteration_data[optimal_index][1]
+        optimal_bf = iteration_data[optimal_index][2]
 
+        # Save all iterations data to CSV
+        with open(output_csv, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['Iteration', 'T', 'Bf', 'Cost'])  # Write the header
+            writer.writerows(iteration_data)  # Write all iteration data
 
+        print(f"Optimal values found: T={optimal_T}, Bf={optimal_bf}, Cost={min_cost_value}")
 
+        return optimal_T, optimal_bf, min_cost_value
 
 
 

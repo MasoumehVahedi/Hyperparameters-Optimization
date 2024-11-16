@@ -2,31 +2,35 @@ import numpy as np
 import pandas as pd
 
 
+
 class Measurements:
     def __init__(self, polygons):
         self.polygons = polygons
-        self.data = self.computeMBB(self.polygons)
+        self.mbrs = self.computeMBRs(self.polygons)
 
-    def computeMBB(self, polygons):
-        MBRs = []
-        for poly in polygons:
-            minx, miny, maxx, maxy = poly.bounds
-            MBRs.append([minx, miny, maxx, maxy])
+
+    def computeMBRs(self, polygons):
+        MBRs = [poly.bounds for poly in polygons]
         return MBRs
 
-    def calMinMBRsDistance(self, mbr1, mbr2):
+    def calNearestDistanceMBRs(self, mbr1, mbr2):
+        """ Calculate the minimum distance between two MBRs. """
         minx1, miny1, maxx1, maxy1 = mbr1
         minx2, miny2, maxx2, maxy2 = mbr2
+
         dist1 = np.sqrt((minx1 - minx2) ** 2 + (miny1 - miny2) ** 2)
         dist2 = np.sqrt((maxx1 - maxx2) ** 2 + (maxy1 - maxy2) ** 2)
+
         return min(dist1, dist2)
 
 
     def calMaxSizeMBR(self, mbr):
+        """ Calculate the Maximum Size of an MBR. """
         minx, miny, maxx, maxy = mbr
         width = maxx - minx
         height = maxy - miny
         max_size = max(width, height)
+
         return max_size
 
     def calVariance(self, values, ddof=0):
@@ -39,14 +43,15 @@ class Measurements:
         return sum((x - mean) ** 2 for x in values) / (n - ddof)
 
 
-    def saveMeasurements(self):
+    def getAndSaveMeasurements(self):
         min_distances = []
         max_sizes = []
-        for i in range(len(self.data) - 1):
-            current_mbr = self.data[i]
-            next_mbr = self.data[i + 1]
-            min_dist = self.calMinMBRsDistance(current_mbr, next_mbr)
-            max_size = self.calMaxSizeMBR(self.data[i])
+
+        for i in range(len(self.mbrs) - 1):
+            current_mbr = self.mbrs[i]
+            next_mbr = self.mbrs[i+1]
+            min_dist = self.calNearestDistanceMBRs(current_mbr, next_mbr)
+            max_size = self.calMaxSizeMBR(self.mbrs[i])
             min_distances.append(min_dist)
             max_sizes.append(max_size)
 
@@ -67,5 +72,13 @@ class Measurements:
             'VarianceMDNN': [variance_min_distances],
             'VarianceMMS': [variance_max_sizes]
         })
-        df.to_csv("mbr_measurements.csv", index=False)
         return df
+
+
+
+
+
+
+
+
+

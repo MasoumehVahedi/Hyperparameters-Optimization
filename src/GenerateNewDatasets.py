@@ -1,101 +1,86 @@
-import json
-import random
+import os
 import numpy as np
+import pandas as pd
 
 from GenerateMBRs import GenerateMBR
 
 
+
 class GenerateDataset:
-    def __init__(self, df, x_min, y_min, x_max, y_max):
+    def __init__(self, base_dir):
+        self.base_dir = base_dir
         self.genMBR = GenerateMBR()
-        self.df = df
-        self.x_min = x_min
-        self.y_min = y_min
-        self.x_max = x_max
-        self.y_max = y_max
-
-    def get_measurements(self):
-        ################## Constants based on real dataset ###############
-        # Mean and standard deviation for size
-        AMS = self.df["MMS"].iloc[0]
-        VMS = self.df["VarianceMMS"].iloc[0]
-        # Mean and standard deviation for Distance parameter
-        ADNN = self.df["MDNN"].iloc[0]
-        VDNN = self.df["VarianceMDNN"].iloc[0]
-        return ADNN, VDNN, AMS, VMS
 
 
-    def save_mms_mdnn_values(self, i, AMS, ADNN):
-        with open(f"NewDatasets2/AMS_ADNN_values{i}.json", "w") as f:
-            json.dump({"AMS": AMS, "ADNN": ADNN}, f)
+    def generate_random(self, base_value, lower_ratio=1.4, upper_ratio=1.8):
+        """Generate a random value within a range based on a given ratio."""
+        lower_bound = base_value * lower_ratio
+        upper_bound = base_value * upper_ratio
+        return np.random.uniform(lower_bound, upper_bound)
 
 
-    def generate_random(self, base_value):
-        #lower_bound = base_value * 0.9  # 10% lower than the base value
-        #upper_bound = base_value * 1.1  # 10% higher than the base value
+    def generate_datasets(self, AMS_values, ADNN_values, num_vms_variations, num_vdnn_variations, measurements_df, output_csv_path):
+        """Generate datasets for each systematic combination of AMS and ADNN, with VMS and VDNN variations."""
+        all_measurements = pd.DataFrame()
+        x_min, x_max = -180, 180
+        y_min, y_max = -90, 90
 
-        lower_bound = base_value * 1.2  # 20% higher than the base value
-        upper_bound = base_value * 1.4  # 40% higher than the base value
-        return random.uniform(lower_bound, upper_bound)
+        # Create systematic combinations of AMS and ADNN (7 AMS x 7 ADNN = 49 combinations)
+        for ams_idx, AMS in enumerate(AMS_values, start=1):
+            for adnn_idx, ADNN in enumerate(ADNN_values, start=1):
+                print(f"Generating datasets for combination AMS_{ams_idx}, ADNN_{adnn_idx}: AMS={AMS}, ADNN={ADNN}")
+
+                # Get the corresponding bounding box limits from the original measurements DataFrame by row index
+                row = measurements_df.iloc[ams_idx - 1]  # Get AMS row
+                VMS_base = row["VarianceMMS"]
+                VDNN_base = row["VarianceMDNN"]
+
+                # Generate 25 datasets with VMS and VDNN variations for each AMS-ADNN pair
+                for vms_index in range(1, num_vms_variations + 1):
+                    for vdnn_index in range(1, num_vdnn_variations + 1):
+                        # Generate random VMS and VDNN variations
+                        VMS = self.generate_random(VMS_base)
+                        VDNN = self.generate_random(VDNN_base)
+
+                        # Generate standard deviations based on variances
+                        std_dev_size = np.sqrt(VMS)
+                        std_dev_distance = np.sqrt(VDNN)
+                        scaled_SD_size = std_dev_size * 50  # Use smaller scaling factor
+
+                        # Generate MBRs
+                        bounding_boxes = self.genMBR.generateMBRdataset(
+                            ADNN, std_dev_distance, AMS, scaled_SD_size,
+                            x_min, x_max, y_min, y_max
+                        )
+                        transformed_mbrs = self.genMBR.generateMirroredMBRs(bounding_boxes)
+
+                        # Validate MBRs after mirroring
+                        valid_mbrs = [mbr for mbr in transformed_mbrs if self.genMBR.validateMBR(*mbr)]
+
+                        # Create a descriptive name for the dataset including AMS, ADNN, VMS, VDNN
+                        file_name = f"AMS{ams_idx}_ADNN{adnn_idx}_VMS{vms_index}_VDNN{vdnn_index}.npy"
+                        file_path = os.path.join(self.base_dir, file_name)
+                        #print(len(valid_mbrs))
+                        # Save dataset (MBRs)
+                        np.save(file_path, valid_mbrs)
+
+                        # Save the generated values for this dataset
+                        dataset_df = pd.DataFrame({
+                            'Dataset': [file_name],  # Save the file name as the dataset identifier
+                            'AMS': [AMS],
+                            'ADNN': [ADNN],
+                            'VMS': [VMS],
+                            'VDNN': [VDNN]
+                        })
+
+                        # Add to the main DataFrame
+                        all_measurements = pd.concat([all_measurements, dataset_df], ignore_index=True)
+
+                        print(f"Saved dataset: {file_name}")
+
+        # Save all measurements, including VMS and VDNN, to a CSV file
+        all_measurements.to_csv(output_csv_path, index=False)
+        print(f"All measurements with VMS and VDNN saved to {output_csv_path}")
 
 
-    def generate_sub_datasets(self, AMS_base, VMS_base, ADNN_base, VDNN_base, iteration, num_datasets):
-        """ This function Generates a number of datasets where AMS and ADNN are the same across all datasets,
-            but each dataset has different VMS and VDNN values. Like this:
-
-                      (AMS-0, VMS-0, ADNN-0, VDNN-0)
-                      (AMS-0, VMS-1, ADNN-0, VDNN-1)
-                      (AMS-0, VMS-2, ADNN-0, VDNN-2)
-                             .....
-        """
-        for i in range(1, num_datasets + 1):
-            # Generate Random Variances for Size and Distance for each dataset
-            VMS = self.generate_random(VMS_base)
-            VDNN = self.generate_random(VDNN_base)
-            # Calculate the standard deviations
-            std_dev_size = np.sqrt(VMS)
-            std_dev_distance = np.sqrt(VDNN)
-            scaled_SD_size = std_dev_size * 200
-
-            ###### Generate MBRs ######
-            bounding_boxes = self.genMBR.generateMBRdataset(ADNN_base, std_dev_distance, AMS_base, scaled_SD_size, self.x_min, self.x_max, self.y_min, self.y_max)
-            transformed_mbrs = self.genMBR.generate_mirrored_mbrs(bounding_boxes)
-            file_path = f"NewDatasets2/Group{iteration}_MBRdataset{i}"
-            np.save(file_path, transformed_mbrs)  # save new MBR dataset
-        self.save_mms_mdnn_values(iteration, AMS_base, ADNN_base)  # save MMS and MDNN values of each dataset
-
-
-    def generate_new_datasets(self, total_groups, num_datasets_per_group):
-        """ This function is the final function to generate a bunch of different datasets with fixed (AMS and ADNN) and different
-            (VMS and VDNN) like this:
-
-                 (AMS-0, VMS-0, ADNN-0, VDNN-0)
-                 (AMS-0, VMS-1, ADNN-0, VDNN-1)
-                 (AMS-0, VMS-2, ADNN-0, VDNN-2)
-                    .....
-
-                 (AMS-1, VMS-0, ADNN-1, VDNN-0)
-                 (AMS-1, VMS-1, ADNN-1, VDNN-1)
-                 (AMS-1, VMS-2, ADNN-1, VDNN-2)
-                    .....
-
-                 (AMS-2, VMS-0, ADNN-2, VDNN-0)
-                 (AMS-2, VMS-1, ADNN-2, VDNN-1)
-                 (AMS-2, VMS-2, ADNN-2, VDNN-2)
-        """
-        ADNN_base, VDNN_base, AMS_base, VMS_base = self.get_measurements()
-
-        for group in range(1, total_groups + 1):
-            ########## Generate Random Values ##########
-            AMS = self.generate_random(AMS_base)
-            VMS = self.generate_random(VMS_base)
-            ADNN = self.generate_random(ADNN_base)
-            VDNN = self.generate_random(VDNN_base)
-            self.generate_sub_datasets(AMS, VMS, ADNN, VDNN, group, num_datasets_per_group)
-
-
-    def load_mms_mdnn_values(self, i):
-        with open(f"NewDatasets2/AMS_ADNN_values{i}.json", "r") as f:
-            values = json.load(f)
-        return values["AMS"], values["ADNN"]
 
