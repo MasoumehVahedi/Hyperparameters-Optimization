@@ -1,21 +1,18 @@
 import gc
+import pickle
 from collections import defaultdict
 from sklearn.linear_model import LinearRegression
 
-from AlgorithmToFindOptimalHyperparameters.SPLindex.ConfigParam import *
-from AlgorithmToFindOptimalHyperparameters.SPLindex.utils import *
-
+from .utils import *
 
 
 
 class SPLI:
-    def __init__(self, polygons, page_size):
+    def __init__(self, polygons, page_size=4096):
         self.polygons = polygons
         self.page_size = page_size
-        self.config = Config()
         self.leaf_count = 0
         self.internal_count = 0
-
 
 
     def get_byte_size(self, polygon):
@@ -153,7 +150,6 @@ class SPLI:
                     for cluster_id in node.labels:
                         prob = probs[cluster_id]
                         return (cluster_id, prob)
-
 
     def get_predict_clusters(self, model, z_range):
         return self.pred_cluster_ids(model, z_range)

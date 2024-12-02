@@ -1,8 +1,11 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 
-from GenerateMBRs import GenerateMBR
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
+from generatingMBRs import GenerateMBR
 
 
 
@@ -48,10 +51,7 @@ class GenerateDataset:
                         scaled_SD_size = std_dev_size * 50  # Use smaller scaling factor
 
                         # Generate MBRs
-                        bounding_boxes = self.genMBR.generateMBRdataset(
-                            ADNN, std_dev_distance, AMS, scaled_SD_size,
-                            x_min, x_max, y_min, y_max
-                        )
+                        bounding_boxes = self.genMBR.generateMBRdataset(AMS, scaled_SD_size,x_min, x_max)
                         transformed_mbrs = self.genMBR.generateMirroredMBRs(bounding_boxes)
 
                         # Validate MBRs after mirroring

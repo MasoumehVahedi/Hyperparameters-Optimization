@@ -31,8 +31,7 @@ from collections import defaultdict
 
 from SPLindex.utils import *
 from SPLindex.ZAdress import MortonCode
-from SPLindex.treemodel2 import TreeBuilder
-from SPLindex.ConfigParam import Config
+from SPLindex.treeModel import TreeBuilder
 
 
 
@@ -94,8 +93,8 @@ class OptimalHyperparameters:
         ################### Clustering ####################
         z_ranges_sorted, sorted_clusters_IDs, sorted_clusters = self.sort_clusters_Zaddress(data, bf, T)
         ################# Index Building ##################
-        tree = TreeBuilder()
-        model = tree.build_tree(z_ranges_sorted, sorted_clusters_IDs, Config().max_depth)
+        tree = TreeBuilder(global_percentage=0.05, capacity_node=10)  # Assuming a 5% error bound for illustration
+        model = tree.buildTreeModel(z_ranges_sorted, sorted_clusters_IDs)
 
         hash_tables_generator = spli.get_disk_pages(sorted_clusters)
         hash_tables = defaultdict(dict)

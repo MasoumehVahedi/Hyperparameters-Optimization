@@ -1,11 +1,9 @@
 import sys
-sys.setrecursionlimit(5000)
-print(sys.getrecursionlimit())
-
-
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
+
+
 
 
 class Node:
@@ -20,10 +18,11 @@ class Node:
         self.cdfs = None
 
 
+
 class TreeBuilder:
-    def __init__(self, global_percentage):
+    def __init__(self, global_percentage, capacity_node):
         self.global_percentage = global_percentage
-        self.capacity_node = 10
+        self.capacity_node = capacity_node
 
 
     def are_all_z_ranges_identical(self, z_ranges):
@@ -143,20 +142,3 @@ class TreeBuilder:
         global_max_z = max(z_ranges, key=lambda x: x[1])[1]
         global_range = global_max_z - global_min_z
         return global_range * self.global_percentage
-
-
-    def printTree(self, node, depth=0, node_type='Root'):
-        if node is not None:
-            indent = '  ' * depth  # Indentation based on the depth of the node
-            if node.leaf_model is not None:
-                print(
-                    f"{indent}{node_type} Node (Leaf) - Depth: {depth}, Z Ranges: {node.z_ranges}, Clusters: {node.clusters}")
-            else:
-                print(
-                    f"{indent}{node_type} Node (Internal) - Depth: {depth}, Z Ranges: {node.z_ranges}, Clusters: {node.clusters}")
-
-            # If the node has children, print them recursively
-            if node.left_child is not None:
-                self.printTree(node.left_child, depth + 1, 'Left')
-            if node.right_child is not None:
-                self.printTree(node.right_child, depth + 1, 'Right')
